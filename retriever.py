@@ -9,8 +9,24 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.runnables import RunnableLambda
 from langchain_core.documents import Document
 
-CHROMA_DIR  = "chroma_store" 
+CHROMA_DIR = "chroma_store"
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+
+def _annotate_score(document: Document, score: float | None) -> Document:
+    metadata = dict(document.metadata or {})
+    if score is not None:
+        metadata["similarity_score"] = score
+    return Document(page_content=document.page_content, metadata=metadata)
+
+
+def _search_with_score(vectorstore: Chroma, query: str, k: int) -> list[Document]:
+    try:
+        results = vectorstore.similarity_search_with_relevance_scores(query, k=k)
+    except Exception:
+        results = [(document, None) for document in vectorstore.similarity_search(query, k=k)]
+
+    return [_annotate_score(document, score) for document, score in results]
 
 
 def build_retriever(
@@ -36,15 +52,11 @@ def build_retriever(
         persist_directory=CHROMA_DIR,
     )
 
-    faq_retriever     = faq_store.as_retriever(search_kwargs={"k": k_faq})
-    tickets_retriever = tickets_store.as_retriever(search_kwargs={"k": k_tickets})
-    guides_retriever  = guides_store.as_retriever(search_kwargs={"k": k_guides})
-
     def retrieve(query: str) -> list[Document]:
         return (
-            faq_retriever.invoke(query)
-            + tickets_retriever.invoke(query)
-            + guides_retriever.invoke(query)
+            _search_with_score(faq_store, query, k_faq)
+            + _search_with_score(tickets_store, query, k_tickets)
+            + _search_with_score(guides_store, query, k_guides)
         )
 
     return RunnableLambda(retrieve)
