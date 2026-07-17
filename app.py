@@ -1,9 +1,13 @@
 import os
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
+from pathlib import Path
+
 import streamlit as st
 from dotenv import load_dotenv
-from rag_chain import build_chain
+
+from rag_chain import stream_answer_with_documents
+from retriever import build_retriever
 
 load_dotenv()
 
@@ -25,8 +29,53 @@ st.set_page_config(
 )
 
 @st.cache_resource
-def get_chain():
-    return build_chain()
+def get_retriever():
+    return build_retriever()
+
+
+def _document_name(metadata: dict) -> str:
+    source = str(metadata.get("source", "")).lower()
+    if source == "faq":
+        faq_id = metadata.get("faq_id")
+        return f"FAQ {faq_id}" if faq_id else "FAQ"
+    if source == "ticket":
+        ticket_id = metadata.get("ticket_id")
+        return f"Resolved Ticket {ticket_id}" if ticket_id else "Resolved Ticket"
+    if source == "guide":
+        return "Telecom Guide"
+    source_value = str(metadata.get("source", "Unknown"))
+    return Path(source_value).name if source_value else "Unknown"
+
+
+def _page_number(metadata: dict) -> str:
+    page = metadata.get("page", metadata.get("page_number"))
+    return str(page) if page is not None else "Not Available"
+
+
+def _similarity_score(metadata: dict) -> str:
+    score = metadata.get("similarity_score", metadata.get("relevance_score"))
+    if isinstance(score, (int, float)):
+        return f"{score:.2f}"
+    return "Not Available"
+
+
+def _render_retrieved_context(documents) -> None:
+    if not documents:
+        st.info("No retrieved context available.")
+        return
+
+    for index, document in enumerate(documents, start=1):
+        metadata = document.metadata or {}
+
+        st.markdown(f"**Chunk {index}**")
+        st.markdown(f"**Document:** {_document_name(metadata)}")
+        st.markdown(f"**Page:** {_page_number(metadata)}")
+        st.markdown(f"**Similarity Score:** {_similarity_score(metadata)}")
+        st.markdown("**Chunk Text:**")
+        st.write(document.page_content)
+
+        if index < len(documents):
+            st.divider()
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -68,8 +117,14 @@ if question:
     with st.chat_message("user"):
         st.markdown(question)
 
+    retrieved_documents = get_retriever().invoke(question)
+
     with st.chat_message("assistant"):
-        chain = get_chain()
-        response = st.write_stream(chain.stream(question))
+        response = st.write_stream(
+            stream_answer_with_documents(question, retrieved_documents)
+        )
+
+        with st.expander("🔍 Retrieved Context"):
+            _render_retrieved_context(retrieved_documents)
 
     st.session_state.messages.append({"role": "assistant", "content": response})
