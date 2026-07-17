@@ -101,6 +101,13 @@ python data/generate_pdf.py
 
 After regenerating sources, re-run the corresponding ingest script.
 
+## Git Hygiene
+
+- Keep `chroma_store/` and other generated artifacts out of source control.
+- Keep `.env` out of the repository and use `.env.example` as the template.
+- Do not commit virtual environments, caches, or compiled files.
+
+## Troubleshooting
 
 - If the embeddings download fails, ensure `HF_TOKEN` in `.env` is valid.
 - If you see empty responses, re-run the ingest scripts and verify `chroma_store/` was populated.
